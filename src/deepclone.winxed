@@ -1,0 +1,167 @@
+#! winxed
+
+const int VISIT_FREEZE_NORMAL = 0x04; // 0x00 | 0x04;
+const int VISIT_THAW_NORMAL   = 0x05; // 0x01 | 0x04;
+
+const int Hash_key_type_pointer = 4;
+
+function onload[anon, load] () {
+    var core_nci_funcs = {
+	"Parrot_pmc_new_noinit" : "PJI",
+	"Parrot_PMC_visit"      : "vJPP",
+	"Parrot_PMC_freeze"     : "vJPP",
+	"Parrot_PMC_thaw"       : "vJPP",
+	"Parrot_PMC_thawfinish" : "vJPP"
+    };
+    var lib = null;
+    for (string name in core_nci_funcs) {
+	string sig = core_nci_funcs[name];
+	var nci    = dlfunc(lib, name, sig);
+	${ set_hll_global name, nci };
+    }
+
+    /*
+     * Use a helper library to get at data Parrot wisely
+     * encapsulates away from the programmer.
+     *
+     * XXX Don't do this at home!
+     */
+    var my_lib = loadlib("deepclonehelper");
+    var my_nci_funcs = {
+	"pmc_addr"     : "IJP",
+	"pmc_get_meta" : "PJP",
+	"pmc_set_meta" : "vJPP",
+	"pmc_typenum"  : "IJP"
+    };
+    for (string name in my_nci_funcs) {
+	string sig = my_nci_funcs[name];
+	var nci    = dlfunc(my_lib, name, sig);
+	${ set_hll_global name, nci };
+    }
+}
+
+class DeepClone {
+    var todo;
+    var seen;
+    var state;
+
+    var int_queue;
+    var num_queue;
+    var str_queue;
+    var pmc_queue;
+
+    function init_pmc[vtable] (var orig) {
+	self.todo      = new 'ResizablePMCArray'();
+	// XXX winxed constant expansion bug
+	// self.seen      = new 'Hash'(Hash_key_type_pointer);
+	self.seen      = new 'Hash'(4);
+	self.state     = new 'Integer'();
+
+	self.int_queue = new 'ResizableIntegerArray'();
+	self.num_queue = new 'ResizableFloatArray'();
+	self.str_queue = new 'ResizableStringArray'();
+	self.pmc_queue = new 'ResizablePMCArray'();
+
+	${ push self.todo, orig };
+    }
+
+    function get_pmc[vtable] () {
+	using Parrot_PMC_visit;
+	using Parrot_PMC_freeze;
+	using Parrot_PMC_thaw;
+	using Parrot_PMC_thawfinish;
+	using pmc_get_meta;
+	using pmc_set_meta;
+	using pmc_addr;
+
+	for (int i = 0; i < self.todo; i++) {
+	    var orig   = self.todo[i];
+	    var meta   = pmc_get_meta(orig);
+	    self.state = VISIT_FREEZE_NORMAL;
+	    Parrot_PMC_visit(orig, self);
+	    Parrot_PMC_freeze(orig, self);
+	    self.push_pmc(meta);
+
+	    int addr   = pmc_addr(orig);
+	    var dup    = self.seen[addr];
+	    self.state = VISIT_THAW_NORMAL;
+	    Parrot_PMC_visit(dup, self);
+	    Parrot_PMC_thaw(dup, self);
+	    pmc_set_meta(dup, self.shift_pmc());
+	}
+
+	for (int i = 0; i < self.todo; i++) {
+	    var dup = self.seen[pmc_addr(self.todo[i])];
+	    Parrot_PMC_thawfinish(dup, self);
+	}
+
+	return self.todo[0];
+    }
+
+    function get_integer[vtable] () {
+	int i = self.state;
+	return i;
+    }
+
+    function push_pmc[vtable] (var v) {
+	using pmc_addr;
+	int addr = pmc_addr(v);
+
+	var dup;
+	int i;
+	${ isnull i, v };
+	if (i) {
+	    dup = null;
+	}
+	else if (exists(self.seen[addr])) {
+	    dup = self.seen[addr];
+	}
+	else {
+	    using pmc_typenum;
+	    using Parrot_pmc_new_noinit;
+	    int i = pmc_typenum(v);
+	    dup   = Parrot_pmc_new_noinit(i);
+	    self.seen[addr] = dup;
+	    ${ push self.todo, v };
+	}
+
+	${ push self.pmc_queue, dup };
+    }
+
+    function shift_pmc[vtable] () {
+	var v;
+	${ shift v, self.pmc_queue };
+	return v;
+    }
+
+    function push_integer[vtable] (int v) {
+	${ push self.int_queue, v };
+    }
+
+    function shift_integer[vtable] () {
+	int v;
+       	${ shift v, self.int_queue };
+	return v;
+    }
+
+    function push_float[vtable] (float v) {
+	${ push self.num_queue, v };
+    }
+
+    function shift_float[vtable] () {
+	float v;
+        ${ shift v, self.num_queue };
+	return v;
+    }
+
+    function push_string[vtable] (string v) {
+	${ push self.str_queue, v };
+    }
+
+    function shift_string[vtable] () {
+	string v;
+       	${ shift v, self.str_queue };
+	return v;
+    }
+}
+

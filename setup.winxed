@@ -1,0 +1,287 @@
+#! winxed
+
+/*
+
+=head1 NAME
+
+setup.winxed - Python distutils style
+
+=head1 DESCRIPTION
+
+=head2 Functions
+
+=over 4
+
+=item C<main>
+
+run distutils
+
+=cut
+
+ */
+
+function main(var argv) {
+    using extern distutils;
+
+    /* ignore first element in argv (program name) */
+    argv.shift();
+
+    using build_pir_winxed;
+    using build_c_dynext;
+    register_step_before('build', build_pir_winxed);
+    register_step_after('build', build_c_dynext);
+
+    using clean_pir_winxed;
+    using clean_c_dynext;
+    register_steb_after('clean', clean_pir_winxed);
+    register_step_before('clean', clean_c_dynext);
+
+    var conf = load_setup_json();
+    setup(argv:[flat], conf:[flat,named]);
+}
+
+
+/*
+
+=item C<load_setup_json>
+
+read setup.json
+
+=cut
+
+*/
+
+function load_setup_json() {
+    var file        = open('setup.json');
+    string json_str = file.readall();
+    file.close();
+    var json        = load_language('data_json');
+    var promise     = json.compile(json_str);
+    return promise();
+}
+
+
+/*
+
+=item C<build_pir_winxed()>
+
+compile Winxed files to PIR
+
+=cut
+
+*/
+
+function build_pir_winxed(var kv[named, slurpy]) {
+    var hash = kv['pir_winxed'];
+
+    if (!hash) return;
+
+    string flags = get_value('pir_winxed_flags', '':[named('default')], kv:[flat,named]);
+
+    var jobs = new 'ResizableStringArray'();
+    for (string pir in hash) {
+        string winxed = hash[pir];
+
+        if (newer(pir, winxed)) continue;
+
+        mkpath(dirname(pir), 1:[named('verbose')]);
+
+        string cmd = sprintf("%s --target=pir --output=%s %s %s", [
+            get_winxed(), pir, flags, winxed
+        ]);
+
+        jobs.push(cmd);
+    }
+
+    run_jobs(jobs);
+}
+
+
+/*
+
+=item C<clean_pir_winxed()>
+
+cleanup PIR files generated from Winxed files
+
+=cut
+
+*/
+
+function clean_pir_winxed(var kv[named, slurpy]) {
+    var hash = kv['pir_winxed'];
+
+    if (!hash) return;
+
+    for (string pir in hash)
+        unlink(pir, 1:[named('verbose')]);
+}
+
+
+/*
+
+=item C<build_c_dynext>
+
+=cut
+
+*/
+
+function build_c_dynext(kv[named, slurpy]) {
+    var hash = kv['c_dynext'];
+
+    if (!hash) return;
+
+    var config = get_config();
+    mkpath('dynext', 1:[named('verbose')]);
+
+    for (string dyn_name in hash) {
+        var opts = hash[dyn_name];
+        string dyn_file = dyn_filename(dyn_name);
+
+        string ccflags = opts['ccflags'] + get_cflags();
+
+        // mostly taken from distutils.pir '__build_dynpmc_alone'
+        string ldflags = join(' ', [
+                opts['ldflags'], config['ld_load_flags'],
+                config['parrot_is_shared'] ?  config['inst_libparrot_ldflags'] : ''
+        ]);
+
+        var jobs    = new 'ResizableStringArray'();
+        var o_files = new 'ResizableStringArray'();
+        for (string src in opts['src']) {
+            var obj = c_to_o_file(src);
+            o_files.push(obj);
+
+            if (newer(obj, src)) continue;
+
+            // mostly stolen from distutils.pir '__compile_cc'
+            string cmd = join(' ', [
+                    config['cc'], '-c', config['cc_o_out'], obj,
+                    '-I', get_incdir(), '-I', get_incdir() + '/pmc', '-I', cwd(),
+                    ccflags, src
+            ]);
+
+            jobs.push(cmd);
+        }
+
+        run_jobs(jobs);
+
+        string cmd = join(' ', [
+                config['ld'], config['ld_out'], dyn_file, ldflags, join(' ', o_files) 
+        ]);
+
+        system(cmd, 1:[named('verbose')]);
+
+        /* XXX don't have access to has_strip outside of distutils.pir */
+    }
+}
+
+
+/*
+
+=item C<clean_c_dynext()>
+
+=cut
+
+*/
+
+function clean_c_dynext(kv[named, slurpy]) {
+    var hash = kv['c_dynext'];
+
+    if (!hash) return;
+
+    for (string dyn_name in hash) {
+        var opts = hash[dyn_name];
+        
+        for (string src in opts['src'])
+            unlink(c_to_o_file(src), 1:[named('verbose')]);
+
+        unlink(dyn_filename(dyn_name), 1:[named('verbose')]);
+    }
+}
+
+
+/*
+
+=item C<c_to_o_file()>
+
+=cut
+
+*/
+
+function c_to_o_file(string cfile) {
+    int strlen = length(cfile);
+    string obj_ext = get_config()['o'];
+    string ofile = substr(cfile, strlen - 2, 2) == '.c' ?
+                    substr(cfile, 0, strlen - 2) + obj_ext :
+                    cfile + obj_ext;
+    return ofile;
+}
+
+
+/*
+
+=item C<dyn_filename()>
+
+=cut
+
+*/
+
+function dyn_filename(string dyn) {
+    string load_ext = get_load_ext();
+    return 'dynext/lib' + dyn + load_ext;
+}
+
+
+/*
+
+=item C<compile_dynlib>
+
+compile a Parrot dynlib from a set of C source files using (optional) flags
+
+mostly stolen from C<distutils.pir>
+
+=cut
+
+*/
+
+function compile_dynlib(string name, var sources, string cflags, string ldflags) {
+    cflags  = join(' ', [cflags,  get_cflags()]);
+    ldflags = join(' ', [ldflags, get_ldflags()]);
+
+    mkpath('dynext', 1:[named('verbose')]);
+
+    string obj_ext = get_obj();
+    var objects = new 'ResizableStringArray'();
+    for (string src in sources) {
+        int strlen = length(src);
+        var obj = substr(src, strlen - 2, 2) == '.c' ?
+                    substr(src, 0, strlen - 2) + obj_ext :
+                    src + obj_ext;
+        __compile_cc(obj, src, cflags);
+        objects.push(obj);
+    }
+
+    var config      = get_config();
+    string load_ext = get_load_ext();
+    string dynext   = 'dynext/' + name + load_ext;
+    string cmd      = join( ' ', [  config['ld'], config['ld_out'], dynext, ldflags,
+                                    config['ld_load_flags'], config['parrot_is_shared'] ?
+                                                config['inst_libparrot_ldflags'] : '' ] )
+                      + join(' ', objects);
+    system(cmd, 1:[named('verbose')]);
+
+    // XXX no access to _has_strip outside of distutils.pir
+    // if (_has_strip(cflags))
+    //     system('strip ' + dynext, 1:[named(verbose)]);
+}
+
+
+/*
+
+=back
+
+=cut
+
+vim: expandtab shiftwidth=4 ft=javascript:
+
+*/

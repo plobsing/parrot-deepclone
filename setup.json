@@ -1,0 +1,30 @@
+{
+    "name":    "deepclone",
+    "version": "0.001",
+
+    "abstract":    "deep clone library",
+    "description": "Deep cloning library operating on arbitrary Parrot PMCs",
+    "keywords":    [ "deep clone", "clone", "copy" ],
+
+    "copyright_holder": "Peter Lobsinger",
+    "license_type":     "Artistic License 2.0",
+    "license_uri":      "http://www.perlfoundation.org/artistic_license_2_0",
+
+    "checkout_uri": "git://github.com/plobsing/parrot-deepclone.git",
+    "browser_uri":  "http://github.com/plobsing/parrot-deepclone",
+    "project_uri":  "http://github.com/plobsing/parrot-deepclone",
+
+    "pir_winxed": {
+	"src/deepclone.pir": "src/deepclone.winxed"
+    },
+
+    "pbc_pir": {
+	"src/deepclone.pbc": "src/deepclone.pir"
+    },
+
+    "c_dynext": {
+	"deepclonehelper": {
+	    "src": [ "src/deepclonehelper.c" ]
+	}
+    }
+}
