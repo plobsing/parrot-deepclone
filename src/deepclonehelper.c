@@ -7,6 +7,8 @@
  *
  * P.S.: HORRIBLE!!!
  */
+
+#define PARROT_IN_EXTENSION
 #include <parrot/parrot.h>
 
 PARROT_DYNEXT_EXPORT
