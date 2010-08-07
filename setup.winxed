@@ -115,7 +115,12 @@ Get the directory in which winxed lives
 
 function get_winxed_dir() {
     var env = new 'Env';
-    return env['WINXED_PATH'];
+    string path = env['WINXED_PATH'];
+    if (path == '')
+        die("Cannot find winxed.\n" +
+            "Please add $WINXED_PATH to your environment\n" + 
+            "or bug NotFound about making winxed installable.\n");
+    return path;
 }
 
 
