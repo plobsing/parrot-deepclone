@@ -33,7 +33,7 @@ function main(var argv) {
 
     using clean_pir_winxed;
     using clean_c_dynext;
-    register_steb_after('clean', clean_pir_winxed);
+    register_step_after('clean', clean_pir_winxed);
     register_step_before('clean', clean_c_dynext);
 
     var conf = load_setup_json();
@@ -79,6 +79,10 @@ function build_pir_winxed(var kv[named, slurpy]) {
     string flags = get_value('pir_winxed_flags', '':[named('default')], kv:[flat,named]);
 
     var jobs = new 'ResizableStringArray'();
+
+    var temp;
+    ${ loadlib temp, 'os' };
+
     for (string pir in hash) {
         string winxed = hash[pir];
 
@@ -86,14 +90,32 @@ function build_pir_winxed(var kv[named, slurpy]) {
 
         mkpath(dirname(pir), 1:[named('verbose')]);
 
-        string cmd = sprintf("%s --target=pir --output=%s %s %s", [
-            get_winxed(), pir, flags, winxed
+        var os = new 'OS'();
+        string cwd = os.cwd();
+        string cmd = sprintf("cd %s; ./winxed --target=pir -o %s %s %s", [
+            get_winxed_dir(), cwd + '/' + pir, flags, cwd + '/' + winxed
         ]);
 
         jobs.push(cmd);
     }
 
     run_jobs(jobs);
+}
+
+
+/*
+
+=item C<get_winxed_dir()>
+
+Get the directory in which winxed lives
+
+=cut
+
+*/
+
+function get_winxed_dir() {
+    var env = new 'Env';
+    return env['WINXED_PATH'];
 }
 
 
@@ -137,7 +159,9 @@ function build_c_dynext(kv[named, slurpy]) {
         var opts = hash[dyn_name];
         string dyn_file = dyn_filename(dyn_name);
 
-        string ccflags = opts['ccflags'] + get_cflags();
+
+        string ccflags  = opts['ccflags'];
+        ccflags        += get_cflags();
 
         // mostly taken from distutils.pir '__build_dynpmc_alone'
         string ldflags = join(' ', [
