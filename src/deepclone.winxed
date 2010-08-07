@@ -80,17 +80,18 @@ class DeepClone {
 
         for (int i = 0; i < self.todo; i++) {
             var orig   = self.todo[i];
-            var meta   = nci['pmc_get_meta'](orig);
             self.state = VISIT_FREEZE_NORMAL;
             nci['Parrot_PMC_visit'](orig, self);
             nci['Parrot_PMC_freeze'](orig, self);
-            self.push_pmc(meta);
 
             int addr   = nci['pmc_addr'](orig);
             var dup    = self.seen[addr];
             self.state = VISIT_THAW_NORMAL;
-            nci['Parrot_PMC_visit'](dup, self);
             nci['Parrot_PMC_thaw'](dup, self);
+            nci['Parrot_PMC_visit'](dup, self);
+
+            var meta   = nci['pmc_get_meta'](orig);
+            self.push_pmc(meta);
             nci['pmc_set_meta'](dup, self.shift_pmc());
         }
 
@@ -109,7 +110,6 @@ class DeepClone {
 
     function push_pmc[vtable] (var v) {
         using static nci;
-        int addr = nci['pmc_addr'](v);
 
         var dup;
         int nullp;
@@ -118,6 +118,7 @@ class DeepClone {
             dup = null;
         }
         else {
+	    int addr = nci['pmc_addr'](v);
             dup = self.seen[addr];
             ${ isnull nullp, dup };
             if (nullp) {
