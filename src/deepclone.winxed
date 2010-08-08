@@ -71,8 +71,8 @@ class DeepClone {
         self.str_queue = new 'ResizableStringArray'();
         self.pmc_queue = new 'ResizablePMCArray'();
 
-        var todo = self.todo;
-        ${ push todo, orig };
+        self.push_pmc(orig); // create dup of root
+        self.shift_pmc();    // reset queue
     }
 
     function get_pmc[vtable] () {
@@ -118,7 +118,7 @@ class DeepClone {
             dup = null;
         }
         else {
-	    int addr = nci['pmc_addr'](v);
+            int addr = nci['pmc_addr'](v);
             dup = self.seen[addr];
             ${ isnull nullp, dup };
             if (nullp) {
