@@ -175,3 +175,8 @@ class DeepClone {
     }
 }
 
+/*
+
+vim: expandtab shiftwidth=4 ft=javascript:
+
+*/
