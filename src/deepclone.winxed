@@ -112,16 +112,13 @@ class DeepClone {
         using static nci;
 
         var dup;
-        int nullp;
-        ${ isnull nullp, v };
-        if (nullp) {
+        if (v == null) {
             dup = null;
         }
         else {
             int addr = nci['pmc_addr'](v);
             dup = self.seen[addr];
-            ${ isnull nullp, dup };
-            if (nullp) {
+            if (dup == null) {
                 int i = nci['pmc_typenum'](v);
                 dup   = nci['Parrot_pmc_new_noinit'](i);
                 self.seen[addr] = dup;
